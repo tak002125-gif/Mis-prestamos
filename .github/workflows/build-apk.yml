@@ -34,12 +34,34 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Compilar APK
+      - name: Preparar firma permanente
+        env:
+          TACA_KEYSTORE_BASE64: ${{ secrets.TACA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$TACA_KEYSTORE_BASE64" ]; then
+            echo "Falta el secreto TACA_KEYSTORE_BASE64"
+            exit 1
+          fi
+          echo "$TACA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/taca-money.jks"
+
+      - name: Compilar APK firmado
         working-directory: android-project
-        run: gradle assembleDebug
+        env:
+          TACA_KEYSTORE_PATH: ${{ runner.temp }}/taca-money.jks
+          TACA_KEYSTORE_PASSWORD: ${{ secrets.TACA_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$TACA_KEYSTORE_PASSWORD" ]; then
+            echo "Falta el secreto TACA_KEYSTORE_PASSWORD"
+            exit 1
+          fi
+          gradle assembleRelease
+
+      - name: Verificar firma
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs android-project/app/build/outputs/apk/release/app-release.apk
 
       - name: Guardar APK
         uses: actions/upload-artifact@v4
         with:
-          name: MisPrestamos-APK
-          path: android-project/app/build/outputs/apk/debug/app-debug.apk
+          name: TACA-Money-v2.1-APK
+          path: android-project/app/build/outputs/apk/release/app-release.apk
