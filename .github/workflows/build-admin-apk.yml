@@ -29,11 +29,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Instalar componentes Android
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Instalar Android SDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Configurar Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -42,22 +42,29 @@ jobs:
 
       - name: Preparar firma permanente
         env:
-          KEYSTORE_B64: ${{ secrets.TACA_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.TACA_KEYSTORE_PASSWORD }}
+          TACA_KEYSTORE_BASE64: ${{ secrets.TACA_KEYSTORE_BASE64 }}
+          TACA_KEYSTORE_PASSWORD: ${{ secrets.TACA_KEYSTORE_PASSWORD }}
         run: |
-          test -n "$KEYSTORE_B64"
-          test -n "$KEYSTORE_PASSWORD"
-          echo "$KEYSTORE_B64" | base64 --decode > admin-project/taca-release.jks
-          chmod 600 admin-project/taca-release.jks
-          echo "TACA_KEYSTORE_PATH=taca-release.jks" >> "$GITHUB_ENV"
-          echo "TACA_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          if [ -z "$TACA_KEYSTORE_BASE64" ]; then
+            echo "Falta el secreto TACA_KEYSTORE_BASE64"
+            exit 1
+          fi
+          if [ -z "$TACA_KEYSTORE_PASSWORD" ]; then
+            echo "Falta el secreto TACA_KEYSTORE_PASSWORD"
+            exit 1
+          fi
+          echo "$TACA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/prestapro-admin.jks"
 
       - name: Compilar PrestaPro Admin
         working-directory: admin-project
+        env:
+          TACA_KEYSTORE_PATH: ${{ runner.temp }}/prestapro-admin.jks
+          TACA_KEYSTORE_PASSWORD: ${{ secrets.TACA_KEYSTORE_PASSWORD }}
         run: gradle --no-daemon clean assembleRelease
 
       - name: Verificar firma
-        run: apksigner verify --verbose admin-project/app/build/outputs/apk/release/app-release.apk
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs admin-project/app/build/outputs/apk/release/app-release.apk
 
       - name: Guardar APK Admin
         uses: actions/upload-artifact@v4
