@@ -1,0 +1,68 @@
+name: Build PrestaPro Admin APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'PrestaPro_Admin_Android_Proyecto.zip'
+      - '.github/workflows/build-admin-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build-admin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Extraer proyecto PrestaPro Admin
+        run: |
+          rm -rf admin-project
+          mkdir -p admin-project
+          unzip -q PrestaPro_Admin_Android_Proyecto.zip -d admin-project
+          test -f admin-project/settings.gradle
+          test -f admin-project/app/build.gradle
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar componentes Android
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Preparar firma permanente
+        env:
+          KEYSTORE_B64: ${{ secrets.TACA_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.TACA_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_B64"
+          test -n "$KEYSTORE_PASSWORD"
+          echo "$KEYSTORE_B64" | base64 --decode > admin-project/taca-release.jks
+          chmod 600 admin-project/taca-release.jks
+          echo "TACA_KEYSTORE_PATH=taca-release.jks" >> "$GITHUB_ENV"
+          echo "TACA_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Compilar PrestaPro Admin
+        working-directory: admin-project
+        run: gradle --no-daemon clean assembleRelease
+
+      - name: Verificar firma
+        run: apksigner verify --verbose admin-project/app/build/outputs/apk/release/app-release.apk
+
+      - name: Guardar APK Admin
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrestaPro-Admin-v0.1.0-APK
+          path: admin-project/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
